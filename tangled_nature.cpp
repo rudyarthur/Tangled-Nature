@@ -22,7 +22,7 @@
 using namespace std;
 
 ////////////////////
-//Node = species
+//Class (called Node) to contain all the stuff about a species 
 ////////////////////
 class Node {
 public:
@@ -48,9 +48,9 @@ list<Node>::iterator searchNode(list<Node> &species, int n) {
 /////////////////
 //parameters
 /////////////////
-int tgen = 0;				//number of generations
+int tgen = 0;				//number of generations elapsed
 double C = 100; 			//scaling parameter for interspecies interactions
-double sigma = 0;			//scaling parameter for species environment interactions
+double sigma = 0.1;			//scaling parameter for species environment interactions, set to 0 for tandard TNM.
 double pkill = 0.2;			//probability of killing an individual
 double mu = 0.1; 			//resource abundance
 double pmut = 0.01; 		//mutation probability
@@ -60,6 +60,7 @@ int Npop = Npop_init;		//total population
 int max_gens = 100000;		//stop after this many generations
 double theta = 0.25;		//percentage of possible interspecies interactions which can are non-zero
 double mu_theta = 1.0;		//percentage of possible species-environment interactions which can be non-zero
+double nu = 0.000005;		//extra damping
 bool Jran1[N];				//helper list for implementing interspecies coupling matrix efficiently
 double Jran2[N];			//helper list for implementing interspecies coupling matrix efficiently
 double Jran3[N];			//helper list for implementing interspecies coupling matrix efficiently
@@ -69,7 +70,7 @@ double muran3[N];			//helper list for implementing species environment coupling 
 
 
 list<Node> species; //list of all extant species
-unordered_set<int> encountered;
+unordered_set<int> encountered; //set of all species encountered so far
 
 ///////////////////////////
 //random number stuff
@@ -100,9 +101,11 @@ inline int hamming_distance( bitset<L> a, bitset<L> b){
 //initialise everything
 inline void init(int seed){
 
+	//seed the RNG
 	default_random_engine generator(seed+123);
 	mt_generator= mt19937(seed); 
 
+	//set up the coupling matrices
 	double oC = C;
 	double omu = sqrt(mu);
 	normal_distribution<double> distribution(0.0, 1.0);
@@ -116,12 +119,19 @@ inline void init(int seed){
 		muran3[i] = sigma*distribution(generator);
 	} 
 	
+	//Start off with Npop_init individuals of a single species
 	int rs = random_species();
 	encountered.insert(rs);
 	species.emplace_front(rs, Npop_init);
+	//start off with Npop_init species with population 1
+	/*for(int i=0; i<Npop_init; ++i){
+		int rs = random_species();
+		encountered.insert(rs);
+		species.emplace_front(rs, 1);
+	}*/
 }
 
-//does a lot of heavy lifting - returns 'fitness' of a species
+//does a lot of heavy lifting - returns 'fitness' of a species due to interspecies interactions
 inline double calc_HI(list<Node>::iterator elem){
 	double sum = 0; 
 	double musum = 0;
@@ -133,17 +143,17 @@ inline double calc_HI(list<Node>::iterator elem){
 				sum += Jran2[sab] * Jran3[cur->sa] * cur->population;	//inter species
 			}
 			if( muran1[sab] ){
-				musum += muran2[sab] * muran3[cur->sa] * cur->population * cur->population; //species environment
+				musum += muran2[sab] * muran3[cur->sa] * cur->population; //species environment
 			}
 		}
 	}
-	return sum - musum;
+	return sum/Npop - musum;
 }
 
 
 
 
-//returns E = total species environment interaction
+//returns E = total species environment interaction, only use this for printing
 inline double calc_E(list<Node>::iterator elem){
 	double musum = 0;
 	for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){
@@ -151,7 +161,7 @@ inline double calc_E(list<Node>::iterator elem){
 			bitset<L> bin_sab = cur->bin_sa^elem->bin_sa;
 			long int sab = bin_sab.to_ulong();
 			if( muran1[sab] ){
-				musum += muran2[sab] * muran3[cur->sa] * cur->population * cur->population;
+				musum += muran2[sab] * muran3[cur->sa] * cur->population;
 			}
 		}
 	}
@@ -172,12 +182,12 @@ inline double calc_F(list<Node>::iterator elem){
 	return sum;
 }
 
-//global resource constraints
+//Total fitness, adds damping from carrying capacity.
 inline double calc_H(list<Node>::iterator elem){
-	return calc_HI(elem)/Npop - mu*Npop;
+	return calc_HI(elem) - mu*Npop - nu*Npop*Npop;;
 }
 
-//reproduction probability	
+//turn fitness into reproduction probability
 inline double poff(list<Node>::iterator elem){	return 1.0/(1.0 + exp(A-calc_H(elem))); }
 
 //generate offspring of species 'elem' with mutation
@@ -200,6 +210,34 @@ inline void asexual(list<Node>::iterator elem){
 		++elem->population; //increase species count by 1
 	}
 }
+//generate offspring of species 'elem' with mutation, both offspring can mutate
+/*inline void asexual2(list<Node>::iterator elem){
+	++Npop; 	//1 new individual
+	//make the new ones
+	for(int offspring = 0; offspring<2; ++offspring){
+		bitset<L> bin_new;	//new individual genome
+		for(int i=0; i<L; i++){
+			if(mt_rand() < pmut){ bin_new[i] = !elem->bin_sa[i]; }	//each bit can mutate with probability pmut
+			else{ bin_new[i] = elem->bin_sa[i]; }					
+		}
+		if( bin_new != elem->bin_sa ){ //if new species
+			list<Node>::iterator tmpNode = searchNode(species, bin_new.to_ulong() ); //have we seen this species already?
+			if(tmpNode == species.end()){ //if new species not on list
+				species.emplace_front(bin_new.to_ulong(), 1); //add to lsit
+				encountered.insert(bin_new.to_ulong());
+			} else { //if new species already on list
+				++tmpNode->population; //increase that species count by 1
+			}	
+		} else {  //no mutation
+			++elem->population; //increase species count by 1
+		}
+	}
+	//kill the old one
+	--elem->population;		//reduce species population by 1
+	if(elem->population == 0){  //if species is now extinct, remove from list
+		species.erase(elem);
+	}		
+}*/
 
 //implement death
 inline list<Node>::iterator kill(){
@@ -267,8 +305,16 @@ inline void print_stats(ofstream &pop_file, double percent=0.05){ //percent = co
 			++core_size;
 		}
 	}
-	//generation number   number of individuals    number of species    individuals in core     species in core     effect on environment    effect on each other     external resources
-	pop_file << tgen << " " << Npop << " " << diversity << " " << encountered.size() << " " << core_pop << " " << core_size << " " << E << " " << F << " " << mu << endl;			
+	                       
+	pop_file << tgen << " " //generation number 
+	<< Npop << " " //number of individuals
+	<< diversity << " " //number of species
+	<< encountered.size() << " " //number of species ever seen
+	<< core_pop << " " //number ofindividuals in core 
+	<< core_size << " " //number ofspecies in core
+	<< E << " " //Life's effect on environment
+	<< F //Life's effect on each other
+	<< endl;			
 
 }
 
@@ -299,24 +345,6 @@ inline void print_species_network(ofstream &network_file){
 	}	
 }
 
-//print species growth rates
-inline void print_growth(ofstream &growth_file, double time, double percent=0.05){
-	
-	int max = 0; 
-	for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){
-		if( cur->population >  max ){ max = cur->population; }
-	}
-	
-	for (list<Node>::iterator elem=species.begin(); elem != species.end(); ++elem){
-		if( elem->population > percent * (double) max ){
-			double ri = calc_F(elem) / (double)Npop;
-			double ei = calc_E(elem) / (double)Npop;
-			growth_file << setprecision(16) << time << " " << elem->sa << " " << ri << " " << ei << " " << elem->population << endl;				
-		}
-	}
-	
-}
-
 //print species in core
 inline void print_core(ofstream &core_file, double percent=0.05){
 	
@@ -334,78 +362,10 @@ inline void print_core(ofstream &core_file, double percent=0.05){
 
 }
 
-//print core core interaction matrix
-inline void print_core_core(string path, string name_tag, double percent=0.05){
-	
-
-	int max = 0; 
-	for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){
-		if( cur->population >  max ){ max = cur->population; }
-	}
-
-	string name2 = path + "corecore";   name2 += name_tag; ofstream Jcc_file; Jcc_file.open (name2.c_str());
-	string name3 = path + "corecloud";  name3 += name_tag; ofstream Jcl_file; Jcl_file.open (name3.c_str());
-	
-	for (list<Node>::iterator elem=species.begin(); elem != species.end(); ++elem){
-		
-		if( elem->population > percent * (double) max ){ //elem is core
-			for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){
-				if(cur->bin_sa != elem->bin_sa){	
-					if( cur->population > percent * (double) max ){ //cur is core
-						Jcc_file << elem->sa << " " << cur->sa << " ";
-							
-						bitset<L> bin_sab = cur->bin_sa^elem->bin_sa;
-						long int sab = bin_sab.to_ulong();
-						
-						if( Jran1[sab] ){
-							Jcc_file << Jran2[sab] * Jran3[cur->sa] << " ";
-						} else {
-							Jcc_file << "0 ";
-						}
-						
-						if( muran1[sab] ){
-							Jcc_file << (muran2[sab] * muran3[cur->sa]) << " ";
-						} else {
-							Jcc_file << "0 ";
-						}
-						Jcc_file << cur->population << "\n";
-						
-						
-					} else { //cur is cloud
-						Jcl_file << elem->sa << " " << cur->sa << " ";
-							
-						bitset<L> bin_sab = cur->bin_sa^elem->bin_sa;
-						long int sab = bin_sab.to_ulong();
-						
-						if( Jran1[sab] ){
-							Jcl_file << Jran2[sab] * Jran3[cur->sa] << " ";
-						} else {
-							Jcl_file << "0 ";
-						}
-						
-						if( muran1[sab] ){
-							Jcl_file << (muran2[sab] * muran3[cur->sa]) << " ";
-						} else {
-							Jcl_file << "0 ";
-						}
-						Jcl_file << cur->population << "\n";
-
-					}
-				}
-			}
-		} 
-	}
-	
-	Jcc_file.close();	
-	Jcl_file.close();	
-
-}
-
-
 
 int main(int argc, char *argv[]){
 
-	if(argc < 2){ cerr << "usage: tangled_nature seed " << endl; }
+	if(argc < 3){ cerr << "usage: tangled_nature seed path" << endl; exit(1); }
 
 	int it = atoi(argv[1]);
 	int seed = 123*it + 12345; //random seed
@@ -417,13 +377,10 @@ int main(int argc, char *argv[]){
 
 	//put all the parameters in the filename
 	string name_tag = "_seed"+ to_string(it);
-	name_tag += "_C"+ to_string(C); 
-	name_tag += "_A"+ to_string(A); 
 	name_tag += "_mu"+ to_string(mu); 
-	name_tag += "_theta" + to_string(theta); 
-	name_tag += "_mutheta" + to_string(mu_theta); 
+	name_tag += "_nu"+ to_string(nu); 
+	name_tag += "_sigma" + to_string(sigma); 
 	name_tag += "_pmut"+ to_string(pmut); 
-	name_tag += "_L" + to_string(L);
 	name_tag +=".dat";
 
 	string name1 = path + "popplot"; name1 += name_tag;
