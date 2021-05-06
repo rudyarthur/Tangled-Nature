@@ -21,9 +21,9 @@
 
 using namespace std;
 
-////////////////////
+/////////////////////
 //Class (called Node) to contain all the stuff about a species 
-////////////////////
+/////////////////////
 class Node {
 public:
 	int sa;				//species ID
