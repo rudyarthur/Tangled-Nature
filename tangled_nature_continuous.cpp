@@ -15,6 +15,7 @@
 #include <random>
 #include <list>
 #include <unordered_set>
+#include <unordered_map>
 
 #define L 20	  //length of the genome
 #define N 1048576 //2^L
@@ -40,12 +41,20 @@ public:
 
 typedef list<Agents>::iterator Specie;
 
+
 //given a list of species, check if species 'n' is in the list
 Specie searchAgents(list<Agents> &species, int n) {
 	for (Specie cur=species.begin(); cur != species.end(); ++cur){
 		if(cur->sa == n) return cur;
 	}
 	return species.end();
+}
+double totalPop(list<Agents> &species) {
+	int sum = 0;
+	for (Specie cur=species.begin(); cur != species.end(); ++cur){
+		sum += cur->population;
+	}
+	return sum;
 }
 
 /////////////////
@@ -125,32 +134,51 @@ inline void init(int seed){
 	//Start off with Npop_init individuals of a single species
 	int rs = random_species();
 	encountered.insert(rs);
-	species.emplace_front(rs, Npop_init);
+	//species.emplace_front(rs, Npop_init);
 	//start off with Npop_init species with population 1
-	/*for(int i=0; i<Npop_init; ++i){
+	Npop = 0;
+	for(int i=0; i<20; ++i){
 		int rs = random_species();
 		encountered.insert(rs);
-		species.emplace_front(rs, 1);
-	}*/
+		int rp = max(1, (int) ( mt_rand()*100. ) );
+		species.emplace_front(rs, rp);
+		Npop += rp;
+	}
 }
 
-//does a lot of heavy lifting - returns 'fitness' of a species due to interspecies interactions
-inline double calc_HI(Specie elem){
-	double sum = 0; 
-	double musum = 0;
-	for (Specie cur=species.begin(); cur != species.end(); ++cur){ //loop over species
-		if(cur->bin_sa != elem->bin_sa){	//no self interaction
-			bitset<L> bin_sab = cur->bin_sa^elem->bin_sa;		//trick to implement coupling matrix
-			long int sab = bin_sab.to_ulong();				
-			if( Jran1[sab] ){
-				sum += Jran2[sab] * Jran3[cur->sa] * cur->population;	//inter species
+//computes reproduction probability for the chosen species (sas)
+inline unordered_map< int, double > poff(vector<Specie>& sas){
+	
+	unordered_map< int, double > offspring_prob;
+	
+	for (int i=0; i<sas.size(); ++i){ //loop over species
+		
+		if( offspring_prob.find( sas[i]->sa ) != offspring_prob.end() ){ continue; } //already calculated it
+		
+		Specie elem = sas[i];
+		double sum = 0;
+		double musum = 0;
+		
+		for (Specie cur=species.begin(); cur != species.end(); ++cur){
+			
+			if(cur != elem){ //no self
+				bitset<L> bin_sab = cur->bin_sa^elem->bin_sa;		//trick to implement coupling matrix
+				long int sab = bin_sab.to_ulong();				
+				if( Jran1[sab] ){
+					sum += Jran2[sab] * Jran3[cur->sa] * cur->population;	//inter species
+				}
+				if( muran1[sab] ){
+					musum += muran2[sab] * muran3[cur->sa] * cur->population; //species environment
+				}
 			}
-			if( muran1[sab] ){
-				musum += muran2[sab] * muran3[cur->sa] * cur->population; //species environment
-			}
+			
 		}
+		offspring_prob[ sas[i]->sa ] = ( 1.0/(1.0 + exp(A - sum/Npop - musum - mu*Npop - nu*Npop*Npop)) );
+		
 	}
-	return sum/Npop - musum;
+	return offspring_prob;
+
+
 }
 
 
@@ -185,15 +213,10 @@ inline double calc_F(Specie elem){
 	return sum;
 }
 
-//Total fitness, adds damping from carrying capacity.
-inline double calc_H(Specie elem){
-	return calc_HI(elem) - mu*Npop - nu*Npop*Npop;;
-}
-
-//turn fitness into reproduction probability
-inline double poff(Specie elem){	return 1.0/(1.0 + exp(A-calc_H(elem))); }
 
 //generate offspring of species 'elem' with mutation
+		asexual(sas, offspring_prob);
+
 inline void asexual(Specie elem){
 	++Npop; 	//1 new individual
 	bitset<L> bin_new;	//new individual genome
@@ -243,43 +266,56 @@ inline void asexual(Specie elem){
 }*/
 
 //implement death
-inline Specie kill(){
-	double rand = mt_rand();
+inline vector<Specie> kill(int num){ //argument is number of agents to advance
+
+	double rand[num]; for(int i=0; i<num; ++i){ rand[i] = mt_rand(); }
 	double sum = 0;
+	vector<Specie> sas(num, species.end());
+	
 	for (Specie cur=species.begin(); cur != species.end(); ++cur){
 		sum += cur->population;
-		if( Npop*rand <= sum ){ //gives each *individual* an equal chance to be chosen
-			if( mt_rand() < pkill ){	
-				--cur->population;		//reduce species population by 1
-				if(cur->population == 0){  //if species is now extinct, remove from list
-					species.erase(cur);
+		
+		for(int i=0; i<num; ++i){ 
+			
+			if( sas[i] == species.end() && Npop*rand[i] <= sum ){ //gives each *individual* an equal chance to be chosen
+			
+				if( mt_rand() < pkill ){	//try to kill
+					--cur->population;		//reduce species population by 1
+					--Npop;					//reduce total population
+					if(cur->population == 0){  //if species is now extinct, remove from list and abort
+						cur = species.erase(cur); //cur now = the element after the one that was erased
+						--cur; //decrement because we are about to increment in the loop counter!
+						break;
+					}
+				} else {
+					sas[i] = cur; //don't kill an individual
 				}
-				--Npop;				//reduce total population
-				return species.end();	
-			} else {
-				return cur; //don't kill an individual
+			
 			}
 		}
+		
+		
 	}
-	cerr << "kill failed! Npop = " <<  Npop << endl;
-	cerr << "rand " << rand << endl;
-	exit(1);
+	return sas;
+	
 }
 
 //choose a random individual
-inline Specie choose(){
-	double rand = mt_rand();
+inline vector<Specie> choose(int num){
+	double rand[num]; for(int i=0; i<num; ++i){ rand[i] = mt_rand(); }
 	int sum = 0;
+	vector<Specie> sas(num, species.end());
+	
 	for (Specie cur=species.begin(); cur != species.end(); ++cur){
 		sum += cur->population;
-		if( Npop*rand <= sum ){
-			return cur;
+		for(int i=0; i<num; ++i){
+			if( sas[i] == species.end() && Npop*rand[i] <= sum ){
+				sas[i] = cur;
+			}
 		}
 	}
-	
-	cerr << "choose failed! Npop = " <<  Npop << endl;
-	cerr << "rand " << rand << endl;
-	exit(1);
+	return sas;
+
 }
 
 
@@ -373,13 +409,19 @@ int main(int argc, char *argv[]){
 	int it = atoi(argv[1]);
 	int seed = 123*it + 12345; //random seed
     string path = argv[2];
+    int num = 1;
+	if(argc >= 4){
+		num = atoi(argv[3]);
+	}
+	cerr << "advance " << num << endl;
 
 	init(seed);
-	int t = 0;
+	double t = 0;
 	double lgen = Npop/pkill; //how many birth/deaths per generation
 
 	//put all the parameters in the filename
 	string name_tag = "_seed"+ to_string(it);
+	name_tag += "_num"+ to_string(num); 
 	name_tag += "_mu"+ to_string(mu); 
 	name_tag += "_nu"+ to_string(nu); 
 	name_tag += "_sigma" + to_string(sigma); 
@@ -394,12 +436,15 @@ int main(int argc, char *argv[]){
 
 	//start iteration
 	do{
-		Specie sa = kill(); if(Npop == 0){ break; } //choose an individual and kill with prob pkill
-		if(sa == species.end()) sa = choose();	//if we killed the individual, choose another one
-		if( mt_rand() < poff(sa) ){				//individual reproduces with probability poff
-			asexual(sa);		//reproduce asexually
-		}
-		++t; //counter
+		vector<Specie> sas = kill(num); if(Npop < num){ break; } //choose num individuals and kill with prob pkill
+		//compute fitness for all extant individuals
+		sas = choose(num); //if we killed someone, choose some new ones
+
+		unordered_map<int, double> offspring_prob = poff(sas);
+		asexual(sas, offspring_prob);
+		
+		cout << tgen << " " << t << "/" << lgen << " N = " << Npop << "==" << totalPop(species) << endl;
+		t += num; //counter
 
 		
 		if(t >= lgen){	//generation is over

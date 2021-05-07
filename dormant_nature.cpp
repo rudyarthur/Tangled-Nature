@@ -22,9 +22,9 @@
 using namespace std;
 
 ////////////////////
-//Class (called Node) to contain all the stuff about a species 
+//Class (called Agents) to contain all the stuff about a species 
 ////////////////////
-class Node {
+class Agents {
 public:
 	int sa;				//species ID
 	bitset<L> bin_sa;	//binary genome - sa in binary!
@@ -32,7 +32,7 @@ public:
 	int dormant_population;		//number of dormant individuals of this species
 	
 	//initialise
-	Node(int sa_, int pop_){
+	Agents(int sa_, int pop_){
 		sa = sa_;
 		active_population = pop_;
 		bitset<L> tmp (sa);
@@ -41,28 +41,31 @@ public:
 	}
 	
 };
+
+typedef list<Agents>::iterator Specie;
+
 //given a list of species, check if species 'n' is in the list
-list<Node>::iterator searchNode(list<Node> &species, int n) {
-	for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){
+Specie searchAgents(list<Agents> &species, int n) {
+	for (Specie cur=species.begin(); cur != species.end(); ++cur){
 		if(cur->sa == n) return cur;
 	}
 	return species.end();
 }
 //total number of dormant individuals
-int totalDormant(list<Node> &species) {
+int totalDormant(list<Agents> &species) {
 	int sum = 0;
 	int count = 0;
-	for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){
+	for (Specie cur=species.begin(); cur != species.end(); ++cur){
 		sum += cur->dormant_population;
 		if( cur->dormant_population > 0){ ++count; }		
 	}
 	return sum;
 }
 //total number of active individuals
-int totalActive(list<Node> &species) {
+int totalActive(list<Agents> &species) {
 	int sum = 0;
 	int count = 0;	
-	for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){
+	for (Specie cur=species.begin(); cur != species.end(); ++cur){
 		sum += cur->active_population;
 		if( cur->active_population > 0){ ++count; }
 	}
@@ -99,7 +102,7 @@ double S = 0;					//scaling parameter for sleepiness
 double Sm = 1000;					//offset parameter for sleepiness
 
 
-list<Node> species; //list of all extant species
+list<Agents> species; //list of all extant species
 unordered_set<int> encountered; //set of all species encountered so far
 
 ///////////////////////////
@@ -164,10 +167,10 @@ inline void init(int seed){
 }
 
 //does a lot of heavy lifting - returns 'fitness' of a species due to interspecies interactions
-inline pair<double, double> calc_HI(list<Node>::iterator elem){
+inline pair<double, double> calc_HI(Specie elem){
 	double sum = 0; 
 	double musum = 0;
-	for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){ //loop over species
+	for (Specie cur=species.begin(); cur != species.end(); ++cur){ //loop over species
 		if(cur->bin_sa != elem->bin_sa){	//no self interaction
 			bitset<L> bin_sab = cur->bin_sa^elem->bin_sa;		//trick to implement coupling matrix
 			long int sab = bin_sab.to_ulong();				
@@ -188,9 +191,9 @@ inline pair<double, double> calc_HI(list<Node>::iterator elem){
 
 
 //returns E = total species environment interaction, only use this for printing
-inline double calc_E(list<Node>::iterator elem){
+inline double calc_E(Specie elem){
 	double musum = 0;
-	for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){
+	for (Specie cur=species.begin(); cur != species.end(); ++cur){
 		if(cur->bin_sa != elem->bin_sa){
 			bitset<L> bin_sab = cur->bin_sa^elem->bin_sa;
 			long int sab = bin_sab.to_ulong();
@@ -202,9 +205,9 @@ inline double calc_E(list<Node>::iterator elem){
 	return musum;
 }
 //returns F = interaction of species with every other species
-inline double calc_F(list<Node>::iterator elem){
+inline double calc_F(Specie elem){
 	double sum = 0; 
-	for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){
+	for (Specie cur=species.begin(); cur != species.end(); ++cur){
 		if(cur->bin_sa != elem->bin_sa){
 			bitset<L> bin_sab = cur->bin_sa^elem->bin_sa;
 			long int sab = bin_sab.to_ulong();
@@ -217,7 +220,7 @@ inline double calc_F(list<Node>::iterator elem){
 }
 
 //Total fitness, adds damping from carrying capacity.
-//inline double calc_H(list<Node>::iterator elem){return calc_HI(elem) - mu*Nactive - nu*Nactive*Nactive;}
+//inline double calc_H(Specie elem){return calc_HI(elem) - mu*Nactive - nu*Nactive*Nactive;}
 
 //turn fitness into reproduction probability
 inline double poff(double sum, double musum){	
@@ -225,7 +228,7 @@ inline double poff(double sum, double musum){
 }
 
 //generate offspring of species 'elem' with mutation
-inline void asexual(list<Node>::iterator elem){
+inline void asexual(Specie elem){
 	++Nactive; 	//1 new individual
 	bitset<L> bin_new;	//new individual genome
 	for(int i=0; i<L; i++){
@@ -233,19 +236,19 @@ inline void asexual(list<Node>::iterator elem){
 		else{ bin_new[i] = elem->bin_sa[i]; }					
 	}
 	if( bin_new != elem->bin_sa ){ //if new species
-		list<Node>::iterator tmpNode = searchNode(species, bin_new.to_ulong() ); //have we seen this species already?
-		if(tmpNode == species.end()){ //if new species not on list
+		Specie tmpAgents = searchAgents(species, bin_new.to_ulong() ); //have we seen this species already?
+		if(tmpAgents == species.end()){ //if new species not on list
 			species.emplace_front(bin_new.to_ulong(), 1); //add to lsit
 			encountered.insert(bin_new.to_ulong());
 		} else { //if new species already on list
-			++tmpNode->active_population; //increase that species count by 1
+			++tmpAgents->active_population; //increase that species count by 1
 		}	
 	} else {  //no mutation
 		++elem->active_population; //increase species count by 1
 	}
 }
 //generate offspring of species 'elem' with mutation, both offspring can mutate
-/*inline void asexual2(list<Node>::iterator elem){
+/*inline void asexual2(Specie elem){
 	++Nactive; 	//1 new individual
 	//make the new ones
 	for(int offspring = 0; offspring<2; ++offspring){
@@ -255,12 +258,12 @@ inline void asexual(list<Node>::iterator elem){
 			else{ bin_new[i] = elem->bin_sa[i]; }					
 		}
 		if( bin_new != elem->bin_sa ){ //if new species
-			list<Node>::iterator tmpNode = searchNode(species, bin_new.to_ulong() ); //have we seen this species already?
-			if(tmpNode == species.end()){ //if new species not on list
+			Specie tmpAgents = searchAgents(species, bin_new.to_ulong() ); //have we seen this species already?
+			if(tmpAgents == species.end()){ //if new species not on list
 				species.emplace_front(bin_new.to_ulong(), 1); //add to lsit
 				encountered.insert(bin_new.to_ulong());
 			} else { //if new species already on list
-				++tmpNode->active_population; //increase that species count by 1
+				++tmpAgents->active_population; //increase that species count by 1
 			}	
 		} else {  //no mutation
 			++elem->active_population; //increase species count by 1
@@ -279,7 +282,7 @@ inline void asexual(list<Node>::iterator elem){
 //////////////////////////////////////////////
 
 //kill active
-inline list<Node>::iterator kill_active(list<Node>::iterator cur){
+inline Specie kill_active(Specie cur){
 
 	if(Nactive == 0){ return species.end(); } //this shouldn't happen!
 
@@ -299,7 +302,7 @@ inline list<Node>::iterator kill_active(list<Node>::iterator cur){
 	cerr << "rand " << rand << endl;
 	exit(1);
 }
-inline list<Node>::iterator kill_dormant(list<Node>::iterator cur){
+inline Specie kill_dormant(Specie cur){
 	
 	if(Ndormant == 0){ return species.end(); }
 	
@@ -320,7 +323,7 @@ inline list<Node>::iterator kill_dormant(list<Node>::iterator cur){
 }
 
 //choose an individual
-inline pair< list<Node>::iterator, bool > choose(){ //id, active/dormant
+inline pair< Specie, bool > choose(){ //id, active/dormant
 
 	if(Nactive+Ndormant == 0){ return make_pair( species.end(), true ); }
 	
@@ -328,7 +331,7 @@ inline pair< list<Node>::iterator, bool > choose(){ //id, active/dormant
 	double rand = mt_rand();
 	int sum = 0;
 	//I think this is right?
-	for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){
+	for (Specie cur=species.begin(); cur != species.end(); ++cur){
 		sum += cur->active_population;
 		if( Npop*rand <= sum ){
 			return make_pair( cur, true );
@@ -344,13 +347,13 @@ inline pair< list<Node>::iterator, bool > choose(){ //id, active/dormant
 	exit(1);
 }
 //choose a random active individual
-inline list<Node>::iterator choose_active(){
+inline Specie choose_active(){
 
 	if(Nactive == 0){ return species.end(); }
 	
 	double rand = mt_rand();
 	int sum = 0;
-	for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){
+	for (Specie cur=species.begin(); cur != species.end(); ++cur){
 		sum += cur->active_population;
 		if( Nactive*rand <= sum ){
 			return cur;
@@ -361,13 +364,13 @@ inline list<Node>::iterator choose_active(){
 	exit(1);
 }
 //choose a random dormant individual
-inline list<Node>::iterator choose_dormant(){
+inline Specie choose_dormant(){
 
 	if(Ndormant == 0){ return species.end(); }
 	
 	double rand = mt_rand();
 	int sum = 0;
-	for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){
+	for (Specie cur=species.begin(); cur != species.end(); ++cur){
 		sum += cur->dormant_population;
 		if( Ndormant*rand <= sum ){
 			return cur;
@@ -384,7 +387,7 @@ inline list<Node>::iterator choose_dormant(){
 //implement dormancy
 //takes species and 'conditions'
 //MAKE SURE I GOT ALL THE SIGNS RIGHT!
-inline list<Node>::iterator go_dormant(list<Node>::iterator cur, double f){
+inline Specie go_dormant(Specie cur, double f){
 
 	if(Nactive == 0){ return species.end(); }
 
@@ -408,7 +411,7 @@ inline list<Node>::iterator go_dormant(list<Node>::iterator cur, double f){
 	exit(1);
 }
 //implement resuscitation
-inline list<Node>::iterator go_active(list<Node>::iterator cur, double f){
+inline Specie go_active(Specie cur, double f){
 	
 	if(Ndormant == 0){ return species.end(); }
 
@@ -440,7 +443,7 @@ inline void print_stats(ofstream &pop_file, double percent=0.05){ //percent = co
 	double F = 0;
 	int max = 0; 
 	int diversity = 0;
-	for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){
+	for (Specie cur=species.begin(); cur != species.end(); ++cur){
 		if( cur->active_population >  max ){ max = cur->active_population; }
 		++diversity;
 		E += ( cur->active_population*calc_E(cur) / (double)Nactive );
@@ -449,7 +452,7 @@ inline void print_stats(ofstream &pop_file, double percent=0.05){ //percent = co
 
 	int core_pop = 0;
 	int core_size = 0;
-	for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){
+	for (Specie cur=species.begin(); cur != species.end(); ++cur){
 		if( cur->active_population > percent * (double) max ){ 
 			core_pop += cur->active_population;
 			++core_size;
@@ -471,8 +474,8 @@ inline void print_stats(ofstream &pop_file, double percent=0.05){ //percent = co
 
 //dump the interaction network out
 inline void print_species_network(ofstream &network_file){
-	for (list<Node>::iterator elem=species.begin(); elem != species.end(); ++elem){
-		for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){
+	for (Specie elem=species.begin(); elem != species.end(); ++elem){
+		for (Specie cur=species.begin(); cur != species.end(); ++cur){
 			if(cur->bin_sa != elem->bin_sa){	
 				network_file << elem->sa << " " << cur->sa << " ";
 							
@@ -500,11 +503,11 @@ inline void print_species_network(ofstream &network_file){
 inline void print_core(ofstream &core_file, double percent=0.05){
 	
 	int max = 0; 
-	for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){
+	for (Specie cur=species.begin(); cur != species.end(); ++cur){
 		if( cur->active_population >  max ){ max = cur->active_population; }
 	}
 	core_file << tgen << " " << Nactive;
-	for (list<Node>::iterator cur=species.begin(); cur != species.end(); ++cur){
+	for (Specie cur=species.begin(); cur != species.end(); ++cur){
 		if( cur->active_population > percent * (double) max ){ 
 			core_file << " " << cur->sa;
 		}
@@ -544,7 +547,7 @@ int main(int argc, char *argv[]){
 	//ofstream core_file; core_file.open (name2.c_str());
 
 	//start iteration
-	list<Node>::iterator sa;
+	Specie sa;
 	bool active;
 	pair<double, double> ss;	
 	
@@ -554,7 +557,7 @@ int main(int argc, char *argv[]){
 		/////////////////////
 		
 		//choose an individual of either type
-		pair< list<Node>::iterator, bool > choice = choose();
+		pair< Specie, bool > choice = choose();
 		sa = choice.first; active = choice.second;
 
 		if( active ){
