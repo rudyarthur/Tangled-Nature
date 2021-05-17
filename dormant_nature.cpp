@@ -82,9 +82,10 @@ double muran2[N];			//helper list for implementing species environment coupling 
 double muran3[N];			//helper list for implementing species environment coupling matrix efficiently
 
 double sleepiness[N];			//dormancy strategies
+double wakiness[N];				//dormancy strategies
 double S = 0;					//scaling parameter for sleepiness
 double Sm = 1000;				//offset parameter for sleepiness
-double eta = 0;				//less likely to die while dormant
+double eta = 0;					//less likely to die while dormant
 
 
 list<Agents> active_species; //list of all extant species
@@ -138,6 +139,7 @@ inline void init(int seed){
 		muran3[i] = sigma*distribution(generator);
 
 		sleepiness[i] = S*distribution(generator) - Sm;		
+		wakiness[i] = S*distribution(generator) - Sm;		
 	} 
 	
 	//Start off with Nactive_init individuals of a single species
@@ -329,10 +331,14 @@ inline void sleep_wake(list<Agents> &from_species, list<Agents> &to_species, int
 	for (int i=0; i<sas.size(); ++i){ //loop over species
 	
 		if(sas[i]->population > 0){
-			
-			double sprob = 0.01; //TODO 1.0/(1.0 + exp( fitness[ sas[i]->sa ] - sleepiness[ sas[i]->sa ] ) ); 
-			if( !sleep ){ 
-				//sprob = 1 - sprob;  //TODO
+
+			double sprob;
+			if( sleep ){
+				//TODO sprob = 1.0/(1.0 + exp( fitness[ sas[i]->sa ] - sleepiness[ sas[i]->sa ] ) ); 
+				sprob = 0.01; 
+			} else {
+				//TODO sprob = 1 - 1.0/(1.0 + exp( fitness[ sas[i]->sa ] - wakiness[ sas[i]->sa ] ) ); 
+				//TODO sprob = 1 - 1.0/(1.0 + exp( fitness[ sas[i]->sa ] - sleepiness[ sas[i]->sa ] ) ); 
 				sprob = 0.01;
 			}
 
